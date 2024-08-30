@@ -36,9 +36,12 @@ class Ui(QMainWindow):
         self.setWindowIcon(QIcon("logo.ico"))
         self.setStyleSheet("background-color: white;")
 
-        self.import_geometry_box = ImportGeometryBox()
+        self.import_box = ImportBox()
         self.actions_box = ActionsBox(
-            self.import_geometry_box.lineedit, self._draw_plot, self._export
+            self.import_box.mesh_lineedit,
+            self.import_box.imported_points_lineedit,
+            self._draw_plot,
+            self._export,
         )
         self.actions_box.switch_buttons()
         self.plot_box = PyVistaPlotBox(label="Plot")
@@ -47,7 +50,7 @@ class Ui(QMainWindow):
         widget = QWidget(self)
         self.setCentralWidget(widget)
         layout = QGridLayout()
-        layout.addWidget(self.import_geometry_box.box, 0, 0)
+        layout.addWidget(self.import_box.box, 0, 0)
         layout.addWidget(self.actions_box.box, 0, 1)
         layout.addWidget(self.plot_box.box, 1, 0, 1, 2)
 
@@ -62,19 +65,44 @@ class Ui(QMainWindow):
         self.showMaximized()
 
     def _draw_plot(self) -> None:
-        """Draw geometry."""
+        """Draw mesh and/or points."""
 
         self.plot_box.plotter.clear()
         self.selected_points = []
 
         try:
-            mesh = pv.read(self.import_geometry_box.lineedit.text())
+            mesh = pv.read(self.import_box.mesh_lineedit.text())
         except FileNotFoundError:
-            self._display_error_window()
+            self._display_error_window(label="Mesh")
         else:
-            path = Path(self.import_geometry_box.lineedit.text())
+            path = Path(self.import_box.mesh_lineedit.text())
+            self.plot_box.plotter.enable_lightkit()
             self.plot_box.plotter.add_mesh(mesh, show_edges=True)
             self.plot_box.plotter.add_text(f"{path.name}", font_size=6)
+
+            if self.import_box.imported_points_lineedit.text():
+                try:
+                    imported_points = np.loadtxt(
+                        Path(self.import_box.imported_points_lineedit.text()),
+                        delimiter=",",
+                    )
+                except FileNotFoundError:
+                    self._display_error_window(label="Points")
+                else:
+                    point_cloud = pv.PolyData(imported_points)
+                    self.plot_box.plotter.add_mesh(
+                        point_cloud,
+                    )
+                    self.plot_box.plotter.add_point_labels(
+                        point_cloud,
+                        [x for x in range(1, len(imported_points) + 1)],
+                        point_size=14,
+                        shape=None,
+                        point_color="blue",
+                        render_points_as_spheres=True,
+                        always_visible=True,
+                        text_color="blue",
+                    )
 
         def callback(point):
 
@@ -86,6 +114,10 @@ class Ui(QMainWindow):
                 reset_camera=False,
                 fill_shape=False,
                 shape=None,
+                point_size=20,
+                point_color="orange",
+                always_visible=True,
+                text_color="orange",
             )
             actor.SetVisibility(False)
 
@@ -103,7 +135,7 @@ class Ui(QMainWindow):
     def _export(self) -> None:
         """Export selected points as a csv file."""
 
-        path = Path(self.import_geometry_box.lineedit.text())
+        path = Path(self.import_box.mesh_lineedit.text())
         patient_id = path.stem
         if len(self.selected_points):
             np.savetxt(
@@ -116,14 +148,14 @@ class Ui(QMainWindow):
             self._display_warning_window()
 
     @staticmethod
-    def _display_error_window() -> None:
+    def _display_error_window(label: str) -> None:
         """Display error window if geometry import fails."""
 
         message = QMessageBox()
         message.setWindowIcon(QIcon("logo.ico"))
         message.setIcon(QMessageBox.Critical)
         message.setText("Error")
-        message.setText("File not found.")
+        message.setText(f"{label} file not found.")
         message.setWindowTitle("Import Error")
         message.setFixedWidth(400)
         message.exec_()
@@ -141,24 +173,39 @@ class Ui(QMainWindow):
         message.exec_()
 
 
-class ImportGeometryBox:
-    """Import geometry box."""
+class ImportBox:
+    """Import box."""
 
     def __init__(self) -> None:
-        self.lineedit = create_path_lineedit()
-        self.button = QPushButton("Browse")
+        self.mesh_lineedit = create_path_lineedit()
+        self.mesh_button = QPushButton("Mesh")
+        self.imported_points_lineedit = create_path_lineedit()
+        self.imported_points_button = QPushButton("Points")
         self.box = self._create_box()
 
     def _create_box(self) -> QGroupBox:
-        box = QGroupBox("Import Geometry")
+        box = QGroupBox("Import")
         layout = QGridLayout()
         box.setLayout(layout)
 
-        self.button.clicked.connect(
-            lambda: get_file_path(self.lineedit, self.button.text())
+        self.mesh_button.clicked.connect(
+            lambda: get_file_path(
+                self.mesh_lineedit,
+                self.mesh_button.text(),
+                extensions="All Files (*);;(*.stl);;(*.ply);;(*.obj);;(*.vtk)",
+            )
         )
-        layout.addWidget(self.button, 0, 0)
-        layout.addWidget(self.lineedit, 0, 1)
+        self.imported_points_button.clicked.connect(
+            lambda: get_file_path(
+                self.imported_points_lineedit,
+                self.imported_points_button.text(),
+                extensions="(*.csv)",
+            )
+        )
+        layout.addWidget(self.mesh_button, 0, 0)
+        layout.addWidget(self.mesh_lineedit, 0, 1)
+        layout.addWidget(self.imported_points_button, 1, 0)
+        layout.addWidget(self.imported_points_lineedit, 1, 1)
 
         return box
 
@@ -167,9 +214,14 @@ class ActionsBox:
     """Actions box."""
 
     def __init__(
-            self, import_lineedit: QLineEdit, draw: Callable, export: Callable
+            self,
+            mesh_lineedit: QLineEdit,
+            imported_points_lineedit: QLineEdit,
+            draw: Callable,
+            export: Callable,
     ) -> None:
-        self._lineedit = import_lineedit
+        self._mesh_lineedit = mesh_lineedit
+        self._imported_points_lineedit = imported_points_lineedit
         self._draw = draw
         self._export = export
         self.draw_button = QPushButton("Draw")
@@ -192,10 +244,10 @@ class ActionsBox:
 
     def switch_buttons(self) -> None:
         def switch() -> None:
-            self.draw_button.setEnabled(all((self._lineedit.text())))
-            self.export_button.setEnabled(all((self._lineedit.text())))
+            self.draw_button.setEnabled(all((self._mesh_lineedit.text())))
+            self.export_button.setEnabled(all((self._mesh_lineedit.text())))
 
-        self._lineedit.textChanged.connect(switch)
+        self._mesh_lineedit.textChanged.connect(switch)
 
 
 class PyVistaPlotBox:
@@ -245,12 +297,12 @@ def create_path_lineedit() -> QLineEdit:
 
     """
     lineedit = QLineEdit()
-    lineedit.setPlaceholderText(f"Browse or enter the geometry file path.")
+    lineedit.setPlaceholderText(f"Browse or enter the file path.")
 
     return lineedit
 
 
-def get_file_path(lineedit: QLineEdit, caption: str) -> None:
+def get_file_path(lineedit: QLineEdit, caption: str, extensions: str) -> None:
     """
     Get file path.
 
@@ -258,9 +310,9 @@ def get_file_path(lineedit: QLineEdit, caption: str) -> None:
     ----------
     lineedit : QLineEdit
     caption : str
+    extensions : str
 
     """
-    extensions = "All Files (*);;(*.stl);;(*.ply);;(*.obj);;(*.vtk)"
     file_path = QFileDialog.getOpenFileName(
         caption=f"Import {caption}", filter=extensions
     )[0]
