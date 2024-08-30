@@ -1,6 +1,6 @@
 [project]
 name = "point-picker-3d"
-version = "1.0.1"
+version = "2.0.0"
 authors = [{ name = "Cristiano Pizzamiglio", email = "cristianopizzamiglio@gmail.com" }]
 description = "A simple interface to pick points on a geometry file (e.g. stl, ply, obj, etc.) and to export the coordinates to a csv file."
 readme = "README.rst"
