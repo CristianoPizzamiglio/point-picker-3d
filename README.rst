@@ -6,6 +6,8 @@ Introduction
 
 A simple interface to pick points on a geometry file (e.g. stl, ply, obj, etc.) and to export the coordinates to a csv file.
 
+It is also possible to import points as a csv file.
+
 
 Installation
 ------------
